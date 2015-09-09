@@ -21,7 +21,8 @@ enum
   kRightMotor,
   kLight,
   kSettings,
-  kStatus              , // Command to report status
+  kStatus,               // Command to report status
+  kIdentify,             // Command to identify device
 };
 
 AF_DCMotor leftMotor(1, MOTOR12_64KHZ);
@@ -86,6 +87,7 @@ void loop() {
   if (hasExpired(previousCommand, ftSettings.getNumSeconds()))
   {
     // No new commands received; stop the car.
+    // Watchdog checks every 3 seconds; NumSeconds should normally be > 3.
     leftMotor.run(RELEASE);
     rightMotor.run(RELEASE);
   }
@@ -106,12 +108,28 @@ void attachCommandCallbacks()
   cmdMessenger.attach(kLeftMotor, onLeftMotor);
   cmdMessenger.attach(kRightMotor, onRightMotor);
   cmdMessenger.attach(kSettings, onSettings);
+  cmdMessenger.attach(kIdentify, onIdentifyRequest);
 }
 
 // Called when a received command has no attached function
 void onUnknownCommand()
 {
   cmdMessenger.sendCmd(kStatus, "Command without attached callback");
+}
+
+// Callback function to respond to indentify request. This is part of the 
+// Auto connection handshake. 
+void onIdentifyRequest()
+{
+  // Here we will send back our communication identifier. Make sure it 
+  // corresponds the Id in the C# code. Use F() macro to store ID in PROGMEM
+    
+  // You can make a unique identifier per device
+  cmdMessenger.sendCmd(kIdentify, F("BFAF4176-766E-436A-ADF2-96133C02B03C"));
+    
+  // Record the time the last command is received
+  previousCommand = millis();
+  
 }
 
 // Callback function that sets led on or off
@@ -125,6 +143,10 @@ void onSetLed()
 
   // Send back status that describes the led state
   cmdMessenger.sendCmd(kLight, (int)ledState);
+
+  // Record the time the last command is received
+  previousCommand = millis();
+  
 }
 
 // Callback function: change speed and direction of the left motor.
@@ -152,7 +174,7 @@ void runMotor(AF_DCMotor motor)
 
   // Record the time the last command is received
   previousCommand = millis();
-
+  
 }
 
 // Callback function: change settings
@@ -162,10 +184,16 @@ void onSettings()
   // If no arguments are supplied, the current settings are returned
 
   // 1. number of seconds until the car stops after receiving the last command.
-  ftSettings.setNumSeconds(cmdMessenger.readInt16Arg());
+  int16_t numSeconds = cmdMessenger.readInt16Arg();
+  if (cmdMessenger.isArgOk())
+  {
+    // An argument was supplied,
+    // update the settings.
+    ftSettings.setNumSeconds(numSeconds);
 
-  // Update EEPROM
-  ftSettings.update();
+    // Update EEPROM
+    ftSettings.update();
+  }
 
   // Return the current settings
   cmdMessenger.sendCmdStart(kSettings);
